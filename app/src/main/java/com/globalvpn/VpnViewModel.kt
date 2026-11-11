@@ -18,7 +18,7 @@ import com.globalvpn.vpn.ServerSelector
 import com.globalvpn.vpn.VpnState
 import com.globalvpn.vpn.VpnStateHolder
 import com.globalvpn.vpn.WireGuardManager
-import com.wireguard.android.util.KeyPair
+import com.wireguard.crypto.KeyPair
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -100,6 +100,12 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _transactions = MutableStateFlow<List<CreditTransaction>>(emptyList())
     val transactions: StateFlow<List<CreditTransaction>> = _transactions.asStateFlow()
+
+    // Connection history (past sessions, newest first). Loaded from local
+    // storage at startup and appended on every disconnect; shown on the
+    // Connection History screen (WalletScreens.HistoryScreen).
+    private val _history = MutableStateFlow<List<ConnectionSession>>(emptyList())
+    val history: StateFlow<List<ConnectionSession>> = _history.asStateFlow()
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
