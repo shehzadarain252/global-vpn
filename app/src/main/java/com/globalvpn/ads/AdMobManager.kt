@@ -51,13 +51,6 @@ class AdMobManager(private val context: Context) {
         const val INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-4510714397469784/7398560475"
         const val REWARDED_AD_UNIT_ID = "ca-app-pub-4510714397469784/2417696533"
 
-        // Banner Ad Unit is PENDING — the developer will provide the real
-        // Banner Ad Unit ID. Until it is set, the banner slot stays hidden
-        // (BannerAdView checks for a blank ID). TODO: paste the real
-        // Banner Ad Unit ID here when the developer provides it.
-        const val BANNER_AD_UNIT_ID = ""
-
-        fun isBannerConfigured(): Boolean = BANNER_AD_UNIT_ID.isNotBlank()
     }
 
     /** Called on ad load/show failures (no PII) for admin error reports. */
