@@ -1,13 +1,18 @@
 # Builds a debug APK in the cloud on every push to main.
 # (Local VM Gradle builds do not work in the dev sandbox — localhost TCP
 # is broken there — so the APK is built here, exactly like EduMind AI.)
+# NOTE: this workflow deliberately mirrors the proven EduMind AI workflow:
+# system Gradle 8.7 (gradle-build-action) + the runner's pre-installed
+# Android SDK via local.properties. Do NOT use android-actions/setup-android
+# (it tries to install the obsolete "tools" package and fails) and do NOT
+# use ./gradlew (this project has no Gradle wrapper scripts).
 name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   build:
@@ -21,23 +26,25 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Gradle 8.7
+        uses: gradle/gradle-build-action@v3
+        with:
+          gradle-version: 8.7
 
-      # Firebase config is never committed. CI builds with a placeholder
-      # google-services.json so the build succeeds; a real build needs
-      # the real file from the Firebase project (see README.md).
+      - name: Set Android SDK path
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+      # Fallback only: the real app/google-services.json is in the repo,
+      # so this normally does nothing. If it is ever missing, the build
+      # uses the placeholder so it still succeeds.
       - name: Placeholder google-services.json (CI only)
         run: |
           if [ ! -f app/google-services.json ]; then
             cp app/google-services.json.example app/google-services.json
           fi
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
