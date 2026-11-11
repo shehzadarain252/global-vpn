@@ -1,14 +1,10 @@
 name: Extract project files
 
 on:
-  push:
-    paths:
-      - '.github/workflows/unzip.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   unzip:
@@ -33,11 +29,16 @@ jobs:
           find . -type f -not -path './.git/*' | sort
           echo "File count:"
           find . -type f -not -path './.git/*' | wc -l
+      - name: Show Android workflow file
+        run: |
+          echo "===== .github/workflows/android.yml ====="
+          cat .github/workflows/android.yml
+          echo "===== end android.yml ====="
       - name: Commit extracted files
         run: |
           git config user.name "shehzadarain252"
           git config user.email "shehzadarain261@gmail.com"
-          git add -A
+          git add -A -- ':!.github/workflows/android.yml'
           git status --short
           git commit -m "Upload Global VPN project files" || echo "Nothing to commit"
           git push
