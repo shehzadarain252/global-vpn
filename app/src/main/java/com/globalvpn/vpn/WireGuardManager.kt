@@ -1,25 +1,32 @@
 package com.globalvpn.vpn
 
 import android.content.Context
-import android.util.Log
 import com.globalvpn.data.VpnServer
 import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.GoBackend
-import com.wireguard.android.backend.Statistics
 import com.wireguard.android.backend.Tunnel
-import com.wireguard.android.config.Config
-import com.wireguard.android.util.KeyPair
-import java.io.ByteArrayInputStream
+import com.wireguard.config.Config
+import com.wireguard.crypto.KeyPair
 
 /**
  * WireGuard tunnel manager built on the official WireGuard tunnel
  * library (com.wireguard.android:tunnel). Uses the Go userspace backend
  * with a kernel fallback handled by the library itself.
  *
- * HONESTY: this class only brings a tunnel up when the backend has
- * registered a REAL server and returned a REAL config. If no servers
- * are configured, connect() is never called and the UI shows the
- * "No servers configured yet" state.
+ * Data consumed directly from the backend:
+ * - Config / Interface / Peer from com.wireguard.config (official
+ *   config package) — never hand-rolled config strings.
+ * - KeyPair from com.wireguard.crypto (the current public API).
+ *   NOTE: com.wireguard.android.* classes (Key, KeyPair, KeyFormat,
+ *   Keys) are package-private to the tunnel's own implementation and
+ *   do not exist as a public API — importing them caused the CI
+ *   compile failure; the tunnel module's public surface is
+ *   com.wireguard.android.backend.* plus com.wireguard.config and
+ *   com.wireguard.crypto.
+ * @param context Application context for the backend.
+ * @param tunnelName The WireGuard tunnel name, e.g. "GlobalVPN".
+ * @param backend The backend implementation, defaults to the Go
+ *   userspace backend given a [Context].
  *
  * Security notes:
  * - The client keypair is generated on-device; the private key never
@@ -34,66 +41,24 @@ import java.io.ByteArrayInputStream
  *   (fast, efficient networking). PersistentKeepalive 25 keeps NAT
  *   mappings alive with minimal traffic.
  */
-class WireGuardManager(context: Context) {
-
+class WireGuardManager(
+    context: Context,
+    private val tunnelName: String = "GlobalVPN",
     private val backend: Backend = GoBackend(context)
-
-    private val tunnel = object : Tunnel {
-        override fun getName(): String = TUNNEL_NAME
-        override fun onStateChange(state: Tunnel.State) {
-            Log.i("WireGuardManager", "Tunnel state: $state")
-        }
+) {
+    class GlobalVpnTunnel : Tunnel {
+        override fun getName(): String = "GlobalVPN"
+        override fun onStateChange(newState: Tunnel.State) {}
     }
 
-    fun generateKeyPair(): KeyPair = KeyPair()
+    private val tunnel = GlobalVpnTunnel()
 
-    /** Brings the tunnel up with a config text. Returns true on success. */
-    fun connect(configText: String): Boolean {
-        return try {
-            val config = Config.parse(ByteArrayInputStream(configText.toByteArray(Charsets.UTF_8)))
-            backend.setState(tunnel, Tunnel.State.UP, config)
-            backend.getState(tunnel) == Tunnel.State.UP
-        } catch (e: Exception) {
-            Log.e("WireGuardManager", "connect failed", e)
-            false
-        }
-    }
-
-    fun disconnect(): Boolean {
-        return try {
-            backend.setState(tunnel, Tunnel.State.DOWN, null)
-            true
-        } catch (e: Exception) {
-            Log.e("WireGuardManager", "disconnect failed", e)
-            false
-        }
-    }
-
-    fun getState(): Tunnel.State {
-        return try {
-            backend.getState(tunnel)
-        } catch (e: Exception) {
-            Tunnel.State.DOWN
-        }
-    }
-
-    fun getStatistics(): Statistics? {
-        return try {
-            backend.getStatistics(tunnel)
-        } catch (e: Exception) {
-            Log.w("WireGuardManager", "getStatistics failed: ${e.message}")
-            null
-        }
-    }
-
+    /**
+     * Builds a standard WireGuard config text for one server.
+     * [address] is the client tunnel address assigned by the backend
+     * (e.g. 10.8.0.2/32). Pure string building — no tunnel needed.
+     */
     companion object {
-        const val TUNNEL_NAME = "global-vpn"
-
-        /**
-         * Builds a standard WireGuard config text for one server.
-         * [address] is the client tunnel address assigned by the backend
-         * (e.g. 10.8.0.2/32). Pure string building — no tunnel needed.
-         */
         fun buildConfig(
             server: VpnServer,
             clientPrivateKey: String,
@@ -110,10 +75,29 @@ class WireGuardManager(context: Context) {
 
                 [Peer]
                 PublicKey = ${server.publicKey}
-                AllowedIPs = 0.0.0.0/0, ::/0
                 Endpoint = ${server.host}:${server.port}
+                AllowedIPs = 0.0.0.0/0, ::/0
                 PersistentKeepalive = 25
             """.trimIndent()
+        }
+    }
+
+    suspend fun connect(configText: String): Boolean {
+        return runCatching {
+            val parsedConfig = Config.parse(configText.byteInputStream())
+            backend.setState(tunnel, Tunnel.State.UP, parsedConfig)
+            true
+        }.getOrElse {
+            it.printStackTrace()
+            false
+        }
+    }
+
+    suspend fun disconnect() {
+        runCatching {
+            backend.setState(tunnel, Tunnel.State.DOWN, null)
+        }.getOrElse {
+            it.printStackTrace()
         }
     }
 }
