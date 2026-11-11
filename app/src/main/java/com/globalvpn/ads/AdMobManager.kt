@@ -32,11 +32,9 @@ import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
  * - At most ONE interstitial per Connect tap and ONE per Disconnect
  *   tap. The ad always comes BEFORE the action, never while a
  *   connection is being established or torn down.
- * - There is no ad-free tier: every user sees banner ads while
- *   disconnected, an interstitial before Connect and before
- *   Disconnect, and rewarded ads for credits.
- * - Banner ads are shown whenever the VPN is DISCONNECTED (including
- *   on app open) and hidden while connected.
+ * - There is no ad-free tier: every user sees an interstitial before
+ *   Connect and before Disconnect, and rewarded ads for credits.
+ *   (No banner ads — removed at the owner's request.)
  * - Rewarded ads grant credits ONLY after the reward callback fires,
  *   and the credit is then verified server-side by the backend
  *   (see VpnRepository.claimReward + backend /api/reward/*).
@@ -50,7 +48,6 @@ class AdMobManager(private val context: Context) {
         // LIVE production ad units (developer-supplied).
         const val INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-4510714397469784/7398560475"
         const val REWARDED_AD_UNIT_ID = "ca-app-pub-4510714397469784/2417696533"
-
     }
 
     /** Called on ad load/show failures (no PII) for admin error reports. */

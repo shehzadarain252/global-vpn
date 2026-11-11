@@ -60,10 +60,10 @@ import androidx.navigation.NavController
 import com.globalvpn.CreditState
 import com.globalvpn.VpnViewModel
 import com.globalvpn.data.VpnServer
-
 import com.globalvpn.ui.navigation.Routes
 import com.globalvpn.ui.theme.BrandGradient
 import com.globalvpn.ui.theme.SuccessGreen
+import com.globalvpn.ui.theme.WarningAmber
 import com.globalvpn.vpn.VpnState
 
 /**
@@ -136,9 +136,6 @@ fun HomeScreen(viewModel: VpnViewModel, navController: NavController) {
         },
         bottomBar = {
             Column {
-                
-                
-                
                 GlobalBottomNav(navController = navController, currentRoute = Routes.HOME)
             }
         }
