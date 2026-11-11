@@ -1,0 +1,21 @@
+# Gradle / Android Studio
+.gradle/
+local.properties
+*.iml
+.idea/
+build/
+app/build/
+*.apk
+*.aab
+
+# Secrets — NEVER commit real credentials or config
+backend/.env
+backend/data/
+app/google-services.json
+*.keystore
+*.jks
+*.pem
+*.key
+
+# OS
+.DS_Store

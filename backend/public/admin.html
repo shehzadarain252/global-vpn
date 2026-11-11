@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Global VPN — Admin Panel</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:960px;margin:0 auto;padding:24px;line-height:1.5;color:#1e1b3a;background:#f6f4ff}
+  h1{color:#7c3aed} h2{margin-top:32px;border-bottom:2px solid #ede9fe;padding-bottom:6px}
+  .cards{display:flex;gap:12px;flex-wrap:wrap}
+  .card{background:#fff;border-radius:12px;padding:16px 20px;min-width:140px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .card b{font-size:26px;display:block;color:#7c3aed}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #eee;font-size:14px}
+  th{background:#ede9fe}
+  input,select{padding:8px;border:1px solid #ccc;border-radius:8px;margin:4px 4px 4px 0}
+  button{background:#7c3aed;color:#fff;border:none;padding:9px 16px;border-radius:8px;cursor:pointer;margin:4px 4px 4px 0}
+  button.secondary{background:#fff;color:#7c3aed;border:1px solid #7c3aed}
+  button.danger{background:#ef4444}
+  .hidden{display:none}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:14px}
+  .error{color:#dc2626}
+</style>
+</head>
+<body>
+<h1>🛡️ Global VPN — Admin Panel</h1>
+<p class="note"><strong>Owner only.</strong> This panel manages real VPN servers, credit rates, users and rewards. There is no premium plan in this app — the app is 100% free with ads; do not add premium management here.</p>
+
+<div id="login">
+  <h2>Login</h2>
+  <p>Password is the <code>ADMIN_PASSWORD</code> set on the server (Render dashboard).</p>
+  <input type="password" id="password" placeholder="Admin password">
+  <button onclick="login()">Login</button>
+  <p id="loginError" class="error"></p>
+</div>
+
+<div id="panel" class="hidden">
+  <h2>Overview</h2>
+  <div class="cards" id="stats"></div>
+
+  <h2>Add a VPN server</h2>
+  <p>Add a <strong>real</strong> WireGuard server. The country appears in the app only after the server is saved and marked online. Never add a fake server — the app must never pretend to connect.</p>
+  <input id="srvCountry" placeholder="Country (e.g. United States)">
+  <input id="srvCode" placeholder="Code (e.g. US)" maxlength="2">
+  <input id="srvCity" placeholder="City (e.g. New York)">
+  <input id="srvHost" placeholder="Host / IP (e.g. 203.0.113.10)">
+  <input id="srvPort" placeholder="Port (e.g. 51820)" type="number">
+  <input id="srvKey" placeholder="Server WireGuard public key" style="width:420px">
+  <select id="srvStatus"><option value="online">online</option><option value="offline">offline</option><option value="maintenance">maintenance</option></select>
+  <button onclick="addServer()">Add server</button>
+  <p id="serverError" class="error"></p>
+
+  <h2>Servers</h2>
+  <table><thead><tr><th>Country</th><th>City</th><th>Endpoint</th><th>Status</th><th>Load</th><th>Actions</th></tr></thead><tbody id="serverRows"></tbody></table>
+
+  <h2>Credit settings</h2>
+  <label>Welcome credits <input id="setWelcome" type="number"></label>
+  <label>Reward credits <input id="setReward" type="number"></label>
+  <label>Credits / 30 min <input id="setPer30" type="number"></label>
+  <label>Low-credit warning at <input id="setLow" type="number"></label>
+  <label><input id="setMaintenance" type="checkbox"> Maintenance mode</label>
+  <button onclick="saveSettings()">Save settings</button>
+
+  <h2>Reward claims</h2>
+  <table><thead><tr><th>Claim</th><th>Guest</th><th>Status</th><th>Created</th></tr></thead><tbody id="rewardRows"></tbody></table>
+
+  <h2>Users (latest 200)</h2>
+  <table><thead><tr><th>Guest ID</th><th>Balance</th><th>Earned</th><th>Used</th></tr></thead><tbody id="userRows"></tbody></table>
+
+  <h2>Error reports</h2>
+  <table><thead><tr><th>Time</th><th>Source</th><th>Message</th></tr></thead><tbody id="errorRows"></tbody></table>
+</div>
+
+<script>
+let token = localStorage.getItem("gvpn_admin_token") || "";
+const api = (path, opts) => fetch(path, {
+  ...(opts || {}),
+  headers: { "Content-Type": "application/json", "x-admin-token": token, ...((opts && opts.headers) || {}) },
+});
+
+async function login() {
+  const password = document.getElementById("password").value;
+  const res = await fetch("/api/admin/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json();
+  if (!res.ok) { document.getElementById("loginError").textContent = data.error || "Login failed"; return; }
+  token = data.token;
+  localStorage.setItem("gvpn_admin_token", token);
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("panel").classList.remove("hidden");
+  loadAll();
+}
+
+async function loadAll() {
+  const stats = await (await api("/api/admin/stats")).json();
+  document.getElementById("stats").innerHTML = [
+    ["Users", stats.users], ["Servers online", stats.serversOnline + " / " + stats.servers],
+    ["Active sessions", stats.activeSessions], ["Credits issued", stats.totalCreditsIssued],
+    ["Credits used", stats.totalCreditsUsed], ["Pending rewards", stats.pendingRewards],
+    ["Error reports", stats.errorReports],
+  ].map(([k, v]) => `<div class="card"><b>${v}</b>${k}</div>`).join("");
+
+  const servers = await (await api("/api/admin/servers")).json();
+  document.getElementById("serverRows").innerHTML = servers.map(s => `<tr>
+    <td>${s.country} (${s.countryCode})</td><td>${s.city}</td><td>${s.host}:${s.port}</td>
+    <td>${s.status}</td><td>${s.load}%</td>
+    <td>
+      <button class="secondary" onclick="pingServer('${s.id}')">Ping</button>
+      <button class="secondary" onclick="toggleServer('${s.id}','${s.status}')">Toggle</button>
+      <button class="danger" onclick="deleteServer('${s.id}')">Delete</button>
+    </td></tr>`).join("") || "<tr><td colspan='6'>No servers yet — add a real one above.</td></tr>";
+
+  const settings = await (await api("/api/admin/settings")).json();
+  document.getElementById("setWelcome").value = settings.welcomeCredits;
+  document.getElementById("setReward").value = settings.rewardCredits;
+  document.getElementById("setPer30").value = settings.creditsPer30Min;
+  document.getElementById("setLow").value = settings.lowCreditThreshold;
+  document.getElementById("setMaintenance").checked = settings.maintenanceMode;
+
+  const rewards = await (await api("/api/admin/rewards")).json();
+  document.getElementById("rewardRows").innerHTML = rewards.map(r => `<tr>
+    <td>${r.claimId}</td><td>${r.guestId}</td><td>${r.status}</td><td>${r.createdAt}</td></tr>`).join("") || "<tr><td colspan='4'>No reward claims yet.</td></tr>";
+
+  const users = await (await api("/api/admin/users")).json();
+  document.getElementById("userRows").innerHTML = users.map(u => `<tr>
+    <td>${u.guestId}</td><td>${u.balance}</td><td>${u.totalEarned}</td><td>${u.totalUsed}</td></tr>`).join("") || "<tr><td colspan='4'>No users yet.</td></tr>";
+
+  const errors = await (await api("/api/admin/errors")).json();
+  document.getElementById("errorRows").innerHTML = errors.map(e => `<tr>
+    <td>${e.createdAt}</td><td>${e.source}</td><td>${e.message}</td></tr>`).join("") || "<tr><td colspan='3'>No error reports.</td></tr>";
+}
+
+async function addServer() {
+  const body = {
+    country: document.getElementById("srvCountry").value.trim(),
+    countryCode: document.getElementById("srvCode").value.trim(),
+    city: document.getElementById("srvCity").value.trim(),
+    host: document.getElementById("srvHost").value.trim(),
+    port: document.getElementById("srvPort").value.trim(),
+    publicKey: document.getElementById("srvKey").value.trim(),
+    status: document.getElementById("srvStatus").value,
+  };
+  const res = await api("/api/admin/servers", { method: "POST", body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) { document.getElementById("serverError").textContent = data.error || "Failed"; return; }
+  document.getElementById("serverError").textContent = "";
+  loadAll();
+}
+
+async function deleteServer(id) {
+  if (!confirm("Delete this server? It will disappear from the app.")) return;
+  await api("/api/admin/servers/" + id, { method: "DELETE" });
+  loadAll();
+}
+
+async function toggleServer(id, status) {
+  const next = status === "online" ? "offline" : "online";
+  await api("/api/admin/servers/" + id, { method: "PUT", body: JSON.stringify({ status: next }) });
+  loadAll();
+}
+
+async function pingServer(id) {
+  const res = await api("/api/admin/servers/" + id + "/ping", { method: "POST" });
+  const data = await res.json();
+  alert(data.reachable ? ("Server answered in " + data.pingMs + " ms") : "Server did not answer");
+}
+
+async function saveSettings() {
+  const body = {
+    welcomeCredits: parseInt(document.getElementById("setWelcome").value, 10),
+    rewardCredits: parseInt(document.getElementById("setReward").value, 10),
+    creditsPer30Min: parseInt(document.getElementById("setPer30").value, 10),
+    lowCreditThreshold: parseInt(document.getElementById("setLow").value, 10),
+    maintenanceMode: document.getElementById("setMaintenance").checked,
+  };
+  await api("/api/admin/settings", { method: "PUT", body: JSON.stringify(body) });
+  alert("Settings saved");
+}
+
+if (token) {
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("panel").classList.remove("hidden");
+  loadAll();
+}
+</script>
+</body>
+</html>
