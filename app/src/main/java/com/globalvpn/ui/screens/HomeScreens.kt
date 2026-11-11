@@ -60,11 +60,10 @@ import androidx.navigation.NavController
 import com.globalvpn.CreditState
 import com.globalvpn.VpnViewModel
 import com.globalvpn.data.VpnServer
-import com.globalvpn.ui.components.BannerAdView
+
 import com.globalvpn.ui.navigation.Routes
 import com.globalvpn.ui.theme.BrandGradient
 import com.globalvpn.ui.theme.SuccessGreen
-import com.globalvpn.ui.theme.WarningAmber
 import com.globalvpn.vpn.VpnState
 
 /**
@@ -137,9 +136,9 @@ fun HomeScreen(viewModel: VpnViewModel, navController: NavController) {
         },
         bottomBar = {
             Column {
-                // Banner ad: visible whenever the VPN is DISCONNECTED
-                // (including immediately on app open).
-                if (!isConnected) BannerAdView()
+                
+                
+                
                 GlobalBottomNav(navController = navController, currentRoute = Routes.HOME)
             }
         }
