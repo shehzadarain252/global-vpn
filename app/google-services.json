@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "205743748151",
+    "project_id": "global-vpn-30f74",
+    "storage_bucket": "global-vpn-30f74.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:205743748151:android:5ef8b98242ff9e21db7bb2",
+        "android_client_info": {
+          "package_name": "com.globalvpn"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAiSyPqpJ-CpYd4vILKuXxYARs9TP6X6QU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
