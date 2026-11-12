@@ -11,6 +11,7 @@ import com.globalvpn.data.VpnRepository
 import com.google.android.gms.ads.MobileAds
 import com.google.firebase.FirebaseApp
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import kotlinx.coroutines.launch
 
 /**
  * Application class for Global VPN.
