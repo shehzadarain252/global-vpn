@@ -37,7 +37,7 @@ import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
  *   (No banner ads — removed at the owner's request.)
  * - Rewarded ads grant credits ONLY after the reward callback fires,
  *   and the credit is then verified server-side by the backend
- *   (see VpnRepository.claimReward + backend /api/reward/*).
+ *   (see VpnRepository.claimReward + backend /api/reward/).
  *
  * Ad load/show failures are reported through [onAdError] so the app
  * can log them to the backend for the admin error reports.
