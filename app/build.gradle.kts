@@ -15,11 +15,10 @@ if (localPropertiesFile.exists()) {
 }
 // Backend base URL. Override in local.properties with:
 //   BACKEND_URL=https://your-backend.example.com
-// Default is a placeholder — the app shows a clear "No servers configured"
-// state until a real backend URL is set and real servers are registered.
+// Default is the live Render backend (deployed 2026-11-12).
 val backendUrl: String =
     (localProperties.getProperty("BACKEND_URL") as? String)
-        ?: "https://your-backend.example.com"
+        ?: "https://global-vpn-backend.onrender.com"
 
 android {
     namespace = "com.globalvpn"
@@ -29,8 +28,8 @@ android {
         applicationId = "com.globalvpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
