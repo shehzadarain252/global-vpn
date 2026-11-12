@@ -13,6 +13,7 @@ import com.globalvpn.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -52,6 +53,10 @@ class GlobalVpnService : VpnService() {
 
     private var wireGuardManager: WireGuardManager? = null
     private var statsJob: Job? = null
+    // Own scope for suspend tunnel calls. It is deliberately NOT
+    // cancelled in onDestroy(): a pending tunnel teardown must run to
+    // completion, and the scope dies with this service instance.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var currentConfig: String? = null
     private var shouldBeConnected = false
     private var reconnectAttempts = 0
@@ -97,21 +102,25 @@ class GlobalVpnService : VpnService() {
 
         val manager = WireGuardManager(this)
         wireGuardManager = manager
-        val ok = manager.connect(config)
-        if (!ok) {
-            VpnStateHolder.setError("Could not start the VPN tunnel. Please try again.")
-            VpnStateHolder.setState(VpnState.ERROR)
-            shouldBeConnected = false
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return
+        // connect() is suspend: run it in the service scope. All
+        // post-connect steps happen inside, after the tunnel is up.
+        serviceScope.launch {
+            val ok = manager.connect(config)
+            if (!ok) {
+                VpnStateHolder.setError("Could not start the VPN tunnel. Please try again.")
+                VpnStateHolder.setState(VpnState.ERROR)
+                shouldBeConnected = false
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@launch
+            }
+            connectedAtMs = System.currentTimeMillis()
+            lastRx = 0L
+            lastTx = 0L
+            VpnStateHolder.resetStats()
+            VpnStateHolder.setState(VpnState.CONNECTED)
+            startStatsPolling()
         }
-        connectedAtMs = System.currentTimeMillis()
-        lastRx = 0L
-        lastTx = 0L
-        VpnStateHolder.resetStats()
-        VpnStateHolder.setState(VpnState.CONNECTED)
-        startStatsPolling()
     }
 
     private fun disconnect() {
@@ -119,14 +128,20 @@ class GlobalVpnService : VpnService() {
         shouldBeConnected = false
         statsJob?.cancel()
         statsJob = null
-        try {
-            wireGuardManager?.disconnect()
-        } catch (e: Exception) {
-            Log.w("GlobalVpnService", "disconnect error: ${e.message}")
-        }
+        val manager = wireGuardManager
         wireGuardManager = null
         currentConfig = null
         VpnStateHolder.setSessionId(null)
+        // disconnect() is suspend: run it in the service scope. The OS
+        // also removes the VPN interface when the service dies, so the
+        // tunnel cannot leak even if this teardown is still in flight.
+        serviceScope.launch {
+            try {
+                manager?.disconnect()
+            } catch (e: Exception) {
+                Log.w("GlobalVpnService", "disconnect error: ${e.message}")
+            }
+        }
         VpnStateHolder.setState(VpnState.DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -223,10 +238,17 @@ class GlobalVpnService : VpnService() {
     override fun onDestroy() {
         shouldBeConnected = false
         statsJob?.cancel()
-        try {
-            wireGuardManager?.disconnect()
-        } catch (e: Exception) {
-            Log.w("GlobalVpnService", "onDestroy disconnect error: ${e.message}")
+        val manager = wireGuardManager
+        wireGuardManager = null
+        // Best-effort tunnel teardown in a fresh scope (the service
+        // scope is not used here so a pending teardown is never
+        // cancelled by onDestroy itself).
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                manager?.disconnect()
+            } catch (e: Exception) {
+                Log.w("GlobalVpnService", "onDestroy disconnect error: ${e.message}")
+            }
         }
         super.onDestroy()
     }
