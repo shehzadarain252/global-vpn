@@ -4,9 +4,9 @@ import android.content.Context
 import com.globalvpn.data.VpnServer
 import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.GoBackend
+import com.wireguard.android.backend.Statistics
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
-import com.wireguard.crypto.KeyPair
 
 /**
  * WireGuard tunnel manager built on the official WireGuard tunnel
@@ -99,5 +99,21 @@ class WireGuardManager(
         }.getOrElse {
             it.printStackTrace()
         }
+    }
+
+    /**
+     * Current tunnel state, for drop detection in the service.
+     * Synchronous backend call; DOWN when the backend cannot report.
+     */
+    fun getState(): Tunnel.State {
+        return runCatching { backend.getState(tunnel) }.getOrDefault(Tunnel.State.DOWN)
+    }
+
+    /**
+     * Current transfer statistics, for live speed display.
+     * Null when the backend cannot report them (e.g. tunnel down).
+     */
+    fun getStatistics(): Statistics? {
+        return runCatching { backend.getStatistics(tunnel) }.getOrNull()
     }
 }
