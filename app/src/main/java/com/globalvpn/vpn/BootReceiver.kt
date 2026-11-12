@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.globalvpn.data.Preferences
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -18,7 +19,7 @@ class BootReceiver : BroadcastReceiver() {
         runBlocking {
             val prefs = Preferences(context)
             val autoReconnect = runCatching {
-                kotlinx.coroutines.flow.first(prefs.autoReconnect)
+                prefs.autoReconnect.first()
             }.getOrDefault(false)
             if (!autoReconnect) return@runBlocking
             val config = prefs.lastConfig() ?: return@runBlocking
