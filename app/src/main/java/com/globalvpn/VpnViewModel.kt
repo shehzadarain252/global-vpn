@@ -74,6 +74,12 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     private val _backendReachable = MutableStateFlow(true)
     val backendReachable: StateFlow<Boolean> = _backendReachable.asStateFlow()
 
+    // True while the first backend contact is still being retried
+    // (Render free tier cold start). The UI shows "Starting the
+    // server…" instead of the unreachable error during this window.
+    private val _isWakingBackend = MutableStateFlow(false)
+    val isWakingBackend: StateFlow<Boolean> = _isWakingBackend.asStateFlow()
+
     // ---- Selection / measurement ----
     private val _selectedServer = MutableStateFlow<VpnServer?>(null)
     val selectedServer: StateFlow<VpnServer?> = _selectedServer.asStateFlow()
@@ -172,7 +178,17 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     // ---------- Initial load ----------
 
     suspend fun loadInitial() {
-        val cfg = repository.fetchConfig()
+        // Render free tier sleeps after inactivity; the first request
+        // wakes it and can take ~50s. Retry instead of reporting
+        // "Cannot reach the Global VPN server" on a cold start.
+        _isWakingBackend.value = true
+        var cfg: AppConfig? = null
+        for (attempt in 0 until 3) {
+            cfg = repository.fetchConfig()
+            if (cfg != null) break
+            if (attempt < 2) delay(5_000L)
+        }
+        _isWakingBackend.value = false
         if (cfg == null) {
             _backendReachable.value = false
             _errorMessage.value = "Cannot reach the Global VPN server. Check your connection and try again."
