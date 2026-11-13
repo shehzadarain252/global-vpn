@@ -40,12 +40,15 @@
 
   <h2>Add a VPN server</h2>
   <p>Add a <strong>real</strong> WireGuard server. The country appears in the app only after the server is saved and marked online. Never add a fake server — the app must never pretend to connect.</p>
+  <p id="provWarning" class="note hidden"></p>
   <input id="srvCountry" placeholder="Country (e.g. United States)">
   <input id="srvCode" placeholder="Code (e.g. US)" maxlength="2">
   <input id="srvCity" placeholder="City (e.g. New York)">
   <input id="srvHost" placeholder="Host / IP (e.g. 203.0.113.10)">
   <input id="srvPort" placeholder="Port (e.g. 51820)" type="number">
   <input id="srvKey" placeholder="Server WireGuard public key" style="width:420px">
+  <input id="srvSshHost" placeholder="SSH host (optional — defaults to Host / IP)">
+  <input id="srvSshUser" placeholder="SSH user (optional — defaults to WG_SSH_USER)">
   <select id="srvStatus"><option value="online">online</option><option value="offline">offline</option><option value="maintenance">maintenance</option></select>
   <button onclick="addServer()">Add server</button>
   <p id="serverError" class="error"></p>
@@ -101,7 +104,16 @@ async function loadAll() {
     ["Active sessions", stats.activeSessions], ["Credits issued", stats.totalCreditsIssued],
     ["Credits used", stats.totalCreditsUsed], ["Pending rewards", stats.pendingRewards],
     ["Error reports", stats.errorReports],
+    ["Peer provisioning", stats.peerProvisioningConfigured ? "ON (SSH)" : "OFF"],
   ].map(([k, v]) => `<div class="card"><b>${v}</b>${k}</div>`).join("");
+
+  const prov = document.getElementById("provWarning");
+  if (stats.peerProvisioningConfigured) {
+    prov.classList.add("hidden");
+  } else {
+    prov.classList.remove("hidden");
+    prov.innerHTML = "<strong>Peer provisioning is OFF.</strong> WG_SSH_PRIVATE_KEY is not set on the server, so sessions are recorded but VPN peers are never added to the WireGuard server — traffic cannot flow. Set the key in Render env vars (see backend README, wg-provision.js).";
+  }
 
   const servers = await (await api("/api/admin/servers")).json();
   document.getElementById("serverRows").innerHTML = servers.map(s => `<tr>
@@ -141,6 +153,8 @@ async function addServer() {
     host: document.getElementById("srvHost").value.trim(),
     port: document.getElementById("srvPort").value.trim(),
     publicKey: document.getElementById("srvKey").value.trim(),
+    sshHost: document.getElementById("srvSshHost").value.trim(),
+    sshUser: document.getElementById("srvSshUser").value.trim(),
     status: document.getElementById("srvStatus").value,
   };
   const res = await api("/api/admin/servers", { method: "POST", body: JSON.stringify(body) });
