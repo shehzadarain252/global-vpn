@@ -93,6 +93,7 @@ fun HomeScreen(viewModel: VpnViewModel, navController: NavController) {
     val showEarnPrompt by viewModel.showEarnPrompt.collectAsState()
     val creditsExhausted by viewModel.creditsExhausted.collectAsState()
     val backendReachable by viewModel.backendReachable.collectAsState()
+    val isWakingBackend by viewModel.isWakingBackend.collectAsState()
     val creditState = viewModel.creditState()
     val rewardCredits = config?.rewardCredits ?: 20
 
@@ -345,7 +346,16 @@ fun HomeScreen(viewModel: VpnViewModel, navController: NavController) {
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-                if (!backendReachable) {
+                if (isWakingBackend) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Starting the server, please wait…",
+                            modifier = Modifier.padding(14.dp),
+                            fontSize = 13.sp
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                } else if (!backendReachable) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             "Cannot reach the Global VPN server. Check your connection and pull to retry.",
