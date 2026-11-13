@@ -90,7 +90,10 @@ The owner plans to run **2 free servers on Oracle Cloud** (Always Free tier, 2 A
    (Adjust `eth0` to the VM's real network interface.)
 5. Enable IP forwarding: `echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf && sudo sysctl -p`.
 6. Start WireGuard: `sudo wg-quick up wg0` and `sudo systemctl enable wg-quick@wg0`.
-7. The backend assigns each client an address in `10.8.0.0/24` and sends the client's public key in the session. The server must accept new peers — either add a `[Peer]` per client (the admin panel does not do this automatically yet), or use a WireGuard management tool. **This is the main remaining server-side step: the backend hands out client addresses and keys, but the Oracle server must be configured to accept those peers.**
+7. **Peer provisioning is automatic** — when a user connects, the backend SSHes into the VM and runs `wg set wg0 peer <client public key> allowed-ips <10.8.0.N>/32` (see `wg-provision.js`); when the session ends — or goes stale for 10 minutes — the peer is removed. For this to work:
+   - On the VM: `sudo` must not ask for a password (standard for the `ubuntu` user on Oracle images) and the backend's SSH public key must be in `~/.ssh/authorized_keys`.
+   - On Render: set env var `WG_SSH_PRIVATE_KEY` to the matching private key (PEM text), `WG_SSH_USER` (default `ubuntu`), `WG_SSH_PORT` (default 22).
+   - Without `WG_SSH_PRIVATE_KEY` the backend still runs, but peers are never added — `/api/health` reports `peerProvisioningConfigured: false` and the admin panel shows a warning. Traffic cannot flow until the key is set.
 8. In the admin panel (`/admin` → Add a VPN server), enter the country, city, host (the VM's public IP), port `51820`, and the server's **public key**. The server appears in the app only when marked `online`.
 
 ### Example server entry (PLACEHOLDER — not a real server)

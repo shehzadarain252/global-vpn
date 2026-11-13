@@ -15,6 +15,14 @@
  *   REWARD_DEV_MODE    "true" credits rewards on claim without AdMob
  *                      server-side verification — TESTING ONLY, keep
  *                      false in production.
+ *   WG_SSH_PRIVATE_KEY SSH private key (PEM) for the WireGuard VMs.
+ *                      REQUIRED for peer provisioning — without it
+ *                      sessions are recorded but the VPN server never
+ *                      learns about the client peer, so no traffic
+ *                      flows. See wg-provision.js.
+ *   WG_SSH_USER        SSH username for the VMs (default "ubuntu").
+ *   WG_SSH_PORT        SSH port (default 22).
+ *   WG_INTERFACE       WireGuard interface (default "wg0").
  *
  * Money/credits rules (all server-side, never trusted from the client):
  *   - 100 welcome credits, once per guest.
@@ -34,6 +42,7 @@ const path = require("path");
 const fs = require("fs");
 const net = require("net");
 const store = require("./store");
+const wgProvision = require("./wg-provision");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -121,6 +130,10 @@ app.get("/api/health", (req, res) => {
     service: "global-vpn-backend",
     maintenanceMode: db.settings.maintenanceMode,
     serversOnline: db.servers.filter((s) => s.status === "online").length,
+    // False until WG_SSH_PRIVATE_KEY is set in Render — without it,
+    // sessions are recorded but peers are never added to the VPN
+    // server, so no traffic flows. See wg-provision.js.
+    peerProvisioningConfigured: wgProvision.isConfigured(),
     time: new Date().toISOString(),
   });
 });
@@ -220,14 +233,29 @@ app.post("/api/session/start", (req, res) => {
     endedAt: null,
     bytesRx: 0,
     bytesTx: 0,
+    peerProvisioned: false,
   };
   db.sessions.push(session);
   store.save();
+  // Provision the peer on the real WireGuard server so traffic can
+  // actually flow. Fire-and-forget: the tunnel config is returned
+  // immediately (WireGuard retries its handshake, so traffic starts
+  // flowing as soon as the peer lands, usually < 2s). The result is
+  // recorded on the session for the admin panel.
+  wgProvision
+    .provisionPeer(server, clientPublicKey, clientAddress)
+    .then((r) => {
+      session.peerProvisioned = r.ok;
+      if (!r.ok) session.peerProvisionError = r.reason;
+      store.save();
+    })
+    .catch(() => {});
   res.json({
     sessionId: session.id,
     clientAddress,
     dns: ["1.1.1.1", "8.8.8.8"],
     wallet: publicWallet(user),
+    peerProvisioned: wgProvision.isConfigured(),
   });
 });
 
@@ -238,10 +266,16 @@ app.post("/api/session/heartbeat", (req, res) => {
     return res.status(404).json({ error: "Session not found" });
   }
   const { billed, exhausted } = billSession(session);
+  session.lastHeartbeatAt = new Date().toISOString();
   const user = getOrCreateUser(session.guestId);
   if (exhausted) {
     session.endedAt = new Date().toISOString();
     store.save();
+    // Credits ran out: remove the peer so the tunnel stops passing traffic.
+    const server = db.servers.find((s) => s.id === session.serverId);
+    if (server) {
+      wgProvision.removePeer(server, session.clientPublicKey).catch(() => {});
+    }
   }
   res.json({
     balance: user.balance,
@@ -261,6 +295,12 @@ app.post("/api/session/end", (req, res) => {
     session.bytesRx = bytesRx || 0;
     session.bytesTx = bytesTx || 0;
     store.save();
+    // Remove the peer from the real WireGuard server so the client
+    // address is freed and the tunnel cannot keep passing traffic.
+    const server = db.servers.find((s) => s.id === session.serverId);
+    if (server) {
+      wgProvision.removePeer(server, session.clientPublicKey).catch(() => {});
+    }
   }
   res.json(publicWallet(getOrCreateUser(session.guestId)));
 });
@@ -541,6 +581,7 @@ app.get("/api/admin/stats", requireAdmin, (req, res) => {
     totalCreditsUsed,
     pendingRewards: db.claims.filter((c) => c.status === "PENDING").length,
     errorReports: db.errors.length,
+    peerProvisioningConfigured: wgProvision.isConfigured(),
   });
 });
 
@@ -549,7 +590,7 @@ app.get("/api/admin/servers", requireAdmin, (req, res) => {
 });
 
 app.post("/api/admin/servers", requireAdmin, (req, res) => {
-  const { country, countryCode, city, host, port, publicKey, status } = req.body || {};
+  const { country, countryCode, city, host, port, publicKey, status, sshHost, sshUser, sshPort } = req.body || {};
   if (!country || !countryCode || !host || !port || !publicKey) {
     return res.status(400).json({
       error: "country, countryCode, host, port and publicKey are required",
@@ -565,6 +606,11 @@ app.post("/api/admin/servers", requireAdmin, (req, res) => {
     publicKey,
     status: status || "online",
     load: 0,
+    // Optional SSH overrides for peer provisioning (wg-provision.js).
+    // When omitted, provisioning SSHes to `host` as WG_SSH_USER.
+    sshHost: sshHost || null,
+    sshUser: sshUser || null,
+    sshPort: sshPort ? parseInt(sshPort, 10) : null,
     createdAt: new Date().toISOString(),
   };
   db.servers.push(server);
@@ -575,7 +621,7 @@ app.post("/api/admin/servers", requireAdmin, (req, res) => {
 app.put("/api/admin/servers/:id", requireAdmin, (req, res) => {
   const server = db.servers.find((s) => s.id === req.params.id);
   if (!server) return res.status(404).json({ error: "Server not found" });
-  const fields = ["country", "countryCode", "city", "host", "port", "publicKey", "status", "load"];
+  const fields = ["country", "countryCode", "city", "host", "port", "publicKey", "status", "load", "sshHost", "sshUser", "sshPort"];
   for (const f of fields) {
     if (req.body[f] !== undefined) server[f] = req.body[f];
   }
@@ -606,7 +652,12 @@ app.post("/api/admin/servers/:id/ping", requireAdmin, async (req, res) => {
       socket.destroy();
       resolve(false);
     });
-    socket.on("error", () => resolve(true)); // RST = host answered.
+    // Only ECONNREFUSED ("connection refused") means the host
+    // answered: a TCP SYN to a UDP WireGuard port gets an RST, and
+    // the time until that RST is the real latency. Any other error
+    // (DNS failure, network unreachable, timeout) means the server
+    // did NOT answer — it must not be reported as reachable.
+    socket.on("error", (err) => resolve(err && err.code === "ECONNREFUSED"));
   });
   const ms = Date.now() - start;
   res.json({ reachable: ok, pingMs: ok ? ms : null });
@@ -655,6 +706,32 @@ app.put("/api/admin/settings", requireAdmin, (req, res) => {
 });
 
 // ------------------------------------------------------------------
+// Stale-session sweeper
+// ------------------------------------------------------------------
+// Sessions whose app died without an /end call (or lost network)
+// stop heartbeating. Every 5 minutes, end any session with no
+// heartbeat for 10 minutes, bill its completed blocks, and remove
+// its peer from the WireGuard server so the address is freed.
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const s of db.sessions.filter((x) => !x.endedAt)) {
+    const last = new Date(s.lastHeartbeatAt || s.startedAt).getTime();
+    if (now - last > 10 * 60 * 1000) {
+      billSession(s);
+      s.endedAt = new Date().toISOString();
+      changed = true;
+      const server = db.servers.find((x) => x.id === s.serverId);
+      if (server) {
+        wgProvision.removePeer(server, s.clientPublicKey).catch(() => {});
+      }
+      console.log(`[sweeper] ended stale session ${s.id}`);
+    }
+  }
+  if (changed) store.save();
+}, 5 * 60 * 1000);
+
+// ------------------------------------------------------------------
 // Start
 // ------------------------------------------------------------------
 
@@ -664,6 +741,11 @@ app.listen(PORT, () => {
   console.log(`Users: ${Object.keys(db.users).length}`);
   if (!ADMIN_PASSWORD) {
     console.log("WARNING: ADMIN_PASSWORD is not set — admin login is disabled.");
+  }
+  if (!wgProvision.isConfigured()) {
+    console.log(
+      "WARNING: WG_SSH_PRIVATE_KEY is not set — WireGuard peers are NOT provisioned, so VPN traffic cannot flow. See wg-provision.js."
+    );
   }
   if (REWARD_DEV_MODE) {
     console.log("WARNING: REWARD_DEV_MODE is ON — rewards are credited without SSV. Disable in production.");
